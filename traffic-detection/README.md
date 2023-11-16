@@ -6,6 +6,7 @@ A fun project for detecting and analyzing traffic flow from video using Roboflow
 
 ## Project Description
 
+![](images/traffic-detection-code-flow.png)
 ## References
 
 
