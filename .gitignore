@@ -158,3 +158,11 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+traffic-detection/data/*
+src/yolov8s.pt.ac2c2dd49dfb416e9e6535680a252712.partial
+traffic-detection/notebooks/yolov8s.pt
+traffic-detection/src/yolov8l.pt
+traffic-detection/notebooks/result.mp4
+*.DS_Store
+*.pt
+.gitignore
