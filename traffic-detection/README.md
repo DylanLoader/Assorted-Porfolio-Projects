@@ -9,4 +9,4 @@ A fun project for detecting and analyzing traffic flow from video using Roboflow
 ![](images/traffic-detection-code-flow.png)
 ## References
 
-
+- Website icon: https://www.flaticon.com/free-icon/truck_819873?term=truck&page=1&position=5&origin=search&related_id=819873

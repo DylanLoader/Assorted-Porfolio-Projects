@@ -1,51 +1,224 @@
 import cv2
+import argparse
+from typing import List, Tuple, Dict
 from ultralytics import YOLO
 import supervision as sv
 import numpy as np
 
+BASE_DIR = ""
+VIDEO_PATH = ""
+MODEL_PATH = ""
+model_type = "large"
+if model_type == "large":
+    MODEL_PATH = "../models/yolov8l.pt"
+else:   
+    MODEL_PATH = "../models/yolov8s.pt"
 
-LINE_START = sv.Point(320, 0)
-LINE_END = sv.Point(320, 480)
+# Set Detection parameters
+CONFIDENCE_THRESHOLD = 0.5
+# LINE_START = sv.Point(320, 0)
+# LINE_END = sv.Point(320, 480)
 
-def main():
-    line_counter = sv.LineZone(start=LINE_START, end=LINE_END)
-    line_annotator = sv.LineZoneAnnotator(thickness=2, text_thickness=1, text_scale=0.5)
-    box_annotator = sv.BoxAnnotator(
-        thickness=2,
-        text_thickness=1,
-        text_scale=0.5
-    )
+COLORS = sv.ColorPalette.default()
 
-    model = YOLO("yolov8l.pt")
-    for result in model.track(source=0, show=True, stream=True, agnostic_nms=True):
+
+class DetectionsManager:
+    def __init__(self) -> None:
+        self.tracker_id_to_zone_id: Dict[int, int] = {}
         
-        frame = result.orig_img
-        detections = sv.Detections.from_yolov8(result)
+    def update(self, 
+               detections:sv.Detections, 
+               detections_zones_left:List[sv.Detections],
+               detections_zones_right:List[sv.Detections]
+               )-> sv.Detections:
+        #TODO check this, shouldn't be necessary for 4 lane highway with no uturn
+        for zone_left_id, detections_zone_left in enumerate(detections_zones_left):
+            for tracker_id in detections_zone_left.tracker_id:
+                self.tracker_id_to_zone_id.setdefault(tracker_id, zone_left_id)
+            
+        # handle right lane
+        # for zone_right_id, detections_zone_right in enumerate(detections_zones_right:
+        #     for tracker_id in detections_zone_right.tracker_id:
+        #         if tracker_id in self.tracker_id_to_zone_id:
+        #             zone_in_id = 
+        # Map tracker ids into zone ids
+        detections.class_id = np.vectorize(lambda x: self.tracker_id_to_zone_id.get(x,-1))(detections.tracker_id)
+        # Remove detections that do not occure in a detection zone (eg. cars in ditch)
+        detections = detections[detections.class_id != -1]
+        return detections
 
-        if result.boxes.id is not None:
-            detections.tracker_id = result.boxes.id.cpu().numpy().astype(int)
-        
-        detections = detections[(detections.class_id != 60) & (detections.class_id != 0)]
+# Left lane dotted
+left_dotted = [
+np.array([
+[1596, 613],[972, 2121]
+])
+]
+    
+# Right lane dotted
+right_dotted = [np.array([[1596, 613],[972, 2121]])]
 
-        labels = [
-            f"{tracker_id} {model.model.names[class_id]} {confidence:0.2f}"
-            for _, confidence, class_id, tracker_id
-            in detections
-        ]
+# Right lane boundary 
+right_lane_poly = [
+np.array([
+[1872, 769],[2860, 2145],[3772, 2145],[3832, 2121],[3828, 1801],[2072, 749],[1884, 753]
+])
+]
 
-        frame = box_annotator.annotate(
-            scene=frame, 
-            detections=detections,
-            labels=labels
+# left lane boundary 
+left_lane_poly=[
+np.array([
+[1684, 717],[1452, 713],[172, 2149],[1756, 2145],[1684, 693]
+])
+]
+
+ZONE_LEFT_POLYGONS = left_lane_poly
+ZONE_RIGHT_POLYGONS = right_lane_poly
+
+def initiate_polygon_zones(
+    polygons: List[np.ndarray],
+    frame_resolution_wh: Tuple[int, int], 
+    triggering_position: sv.Position, 
+)->List[sv.PolygonZone]:
+    return [
+        sv.PolygonZone(
+        polygon=polygon,
+        frame_resolution_wh=frame_resolution_wh,
+        triggering_position=triggering_position,
+        ) for polygon in polygons
+    ]
+
+
+class VideoProcessor: 
+    def __init__(
+        self, 
+        source_weights_path:str, 
+        source_video_path:str,
+        target_video_path:str, 
+        confidence_threshold:float=0.3, 
+        iou_threshold:float=0.7,
+    )->None:
+        self.source_video_path = source_video_path
+        self.target_video_path = target_video_path
+        self.confidence_threshold = confidence_threshold
+        self.iou_threshold = iou_threshold
+        self.model = YOLO(source_weights_path)
+        self.box_annotator = sv.BoxAnnotator(
+            color=COLORS
+            )
+        self.tracker = sv.ByteTrack()
+        self.detections_manager = DetectionsManager()
+        self.video_info = sv.VideoInfo.from_video_path(video_path=self.source_video_path)
+        self.zones_left = initiate_polygon_zones(
+            polygons=ZONE_LEFT_POLYGONS,
+            frame_resolution_wh=self.video_info.resolution_wh,
+            triggering_position=sv.Position.CENTER,
         )
+        self.zones_right = initiate_polygon_zones(
+            polygons=ZONE_RIGHT_POLYGONS,
+            frame_resolution_wh=self.video_info.resolution_wh,
+            triggering_position=sv.Position.CENTER,
+        )
+    def process_video(self):
+        frame_generator = sv.get_video_frames_generator(self.source_video_path)
+        
+        for frame in frame_generator:
+            processed_frame = self.process_frame(frame)
+            cv2.imshow("frame", processed_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        cv2.destroyAllWindows()
 
-        line_counter.trigger(detections=detections)
-        line_annotator.annotate(frame=frame, line_counter=line_counter)
+    def annotate_frame(self, frame: np.ndarray, detections: sv.Detections)->np.ndarray:
+        annotated_frame = frame.copy() # Create local copy of frame to not change in place
+        
+        for i, (zone_left) in enumerate(self.zones_left):
+            annotated_frame=sv.draw_polygon(
+                scene=annotated_frame,
+                polygon=zone_left.polygon,
+                color=COLORS.colors[i],
+            )
 
-        cv2.imshow("yolov8", frame)
+        for i, (zone_right) in enumerate(self.zones_right):
+            annotated_frame=sv.draw_polygon(
+                scene=annotated_frame,
+                polygon=zone_right.polygon,
+                color=COLORS.colors[i],
+            )
+        
+        labels = [
+            f"Tracker ID: {tracker_id}"
+            for tracker_id
+            in detections.tracker_id
+        ]
+        annotate_frame= self.box_annotator.annotate(
+            scene=annotated_frame,
+            detections=detections,
+            labels=labels,
+        )
+        
+        return annotate_frame
 
-        if (cv2.waitKey(30) == 27):
-            break
+    def process_frame(self, frame: np.ndarray)->np.ndarray:
+        result = self.model(
+            frame, 
+            verbose=False, 
+            conf=self.confidence_threshold, 
+            iou=self.iou_threshold,
+            )[0]
+        detections = sv.Detections.from_ultralytics(result)
+        detections = self.tracker.update_with_detections(detections)
+        
+        detections_zones_left = []
+        
+        for zone_left in self.zones_left:
+            detections_zone_left = detections[zone_left.trigger(detections=detections)]
+            detections_zones_left.append(detections_zone_left)
+            
+        # detections = sv.Detections.merge(detections_zones_left)
+        detections = self.detections_manager.update(
+            detections=detections, 
+            detections_zone=detections_zones_left)
+        
+        return self.annotate_frame(frame=frame, detections=detections)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Vehicle counting"
+    )
+    
+    parser.add_argument(
+        "--source_weights_path",
+        required=True,  
+        type=str,
+    )
+    
+    parser.add_argument(
+        "--source_video_path",
+        required=True,
+        type=str,)
+    
+    parser.add_argument(
+        "--target_video_path",
+        required=True,
+        type=str,)
+    
+    parser.add_argument(
+        "--confidence_threshold", 
+        required=False,
+        type=float,
+    )
+    
+    parser.add_argument(
+        "--iou_threshold",
+        type=float, 
+    )
+    
+    args = parser.parse_args()
+    processor = VideoProcessor(
+        source_weights_path=args.source_weights_path,
+        source_video_path=args.source_video_path,
+        target_video_path=args.target_video_path,
+        confidence_threshold=args.confidence_threshold,
+        iou_threshold=args.iou_threshold,
+    )
+    processor.process_video()

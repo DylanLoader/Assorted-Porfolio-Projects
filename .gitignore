@@ -166,3 +166,5 @@ traffic-detection/notebooks/result.mp4
 *.DS_Store
 *.pt
 .gitignore
+*.mp4
+*.zip
