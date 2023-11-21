@@ -17,19 +17,18 @@ MODEL_PATH = ""
 
 # Set Detection parameters
 CONFIDENCE_THRESHOLD = 0.5
-
+left_counter = 0
 COLORS = sv.ColorPalette.default()\
 
 class DetectionsManager:
     def __init__(self) -> None:
         self.tracker_id_to_zone_id: Dict[int, int] = {}
-        
+        # self.counter = Dict[]        
     def update(self, 
                detections:sv.Detections, 
                detections_zones_left:List[sv.Detections],
                detections_zones_right:List[sv.Detections]
                )-> sv.Detections:
-
         #TODO check this, shouldn't be necessary for 4 lane highway with no uturn
         for zone_left_id, detections_zone_left in enumerate(detections_zones_left):
             for tracker_id in detections_zone_left.tracker_id:
@@ -95,7 +94,7 @@ class VideoProcessor:
         self,
         source_weights_path:str,
         source_video_path:str,
-        target_video_path:str,
+        target_video_path:str = None,
         confidence_threshold:float=0.3,
         iou_threshold:float=0.7,
     )->None:
@@ -107,8 +106,8 @@ class VideoProcessor:
         self.box_annotator = sv.BoxAnnotator(
             color=COLORS,
             thickness=4,
-            text_thickness=4, 
-            text_scale=2, 
+            text_thickness=4,
+            text_scale=2,
             )
         self.tracker = sv.ByteTrack()
         self.detections_manager = DetectionsManager()
@@ -123,6 +122,9 @@ class VideoProcessor:
             frame_resolution_wh=self.video_info.resolution_wh,
             triggering_position=sv.Position.CENTER,
         )
+        # self.left_zone_annotator = sv.PolygonZoneAnnotator(zone=self.zones_left[0], color=sv.Color.white(), thickness=6, text_thickness=6, text_scale=4)
+        # self.right_zone_annotator = sv.PolygonZoneAnnotator(zone=self.zones_right[0], color=sv.Color.white(), thickness=6, text_thickness=6, text_scale=4)
+        
     def process_video(self):
         frame_generator = sv.get_video_frames_generator(source_path=self.source_video_path)
         
@@ -138,32 +140,6 @@ class VideoProcessor:
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
             cv2.destroyAllWindows()
-        #####
-        # for frame in frame_generator:
-        #     processed_frame = self.process_frame(frame)
-        #     cv2.imshow("frame", processed_frame)
-        #     if cv2.waitKey(1) & 0xFF == ord('q'):
-        #         break
-        #####
-            # # Convert the opencv mp4 to h264 encoding for streamlit
-            # cap = cv2.VideoCapture(0)
-            # fourcc = cv2.VideoWriter_fourcc(*'avc1')
-            # out = cv2.VideoWriter(self.target_video_path, fourcc, 30, (self.video_info.width, self.video_info.height)) 
-            # while(cap.isOpened()):
-            #     ret, frame = cap.read()
-            #     if ret==True:
-            #         out.write(frame)
-
-            #         cv2.imshow('frame',frame)
-            #         if cv2.waitKey(1) & 0xFF == ord('q'):
-            #             break
-            #     else:
-            #         break
-
-        # Release everything if job is finished
-        # cap.release()
-        # out.release()
-        # cv2.destroyAllWindows()
 
     def annotate_frame(self, frame: np.ndarray, detections: sv.Detections)->np.ndarray:
         annotated_frame = frame.copy() # Create local copy of frame to not change in place
@@ -179,7 +155,7 @@ class VideoProcessor:
             annotated_frame=sv.draw_polygon(
                 scene=annotated_frame,
                 polygon=zone_right.polygon,
-                color=COLORS.colors[i],
+                color=COLORS.colors[i+1],
             )
         
         labels = [
@@ -203,20 +179,30 @@ class VideoProcessor:
             iou=self.iou_threshold,
             )[0]
         detections = sv.Detections.from_ultralytics(result)
-        # detections.class_id = np.zeros(len(detections))
+        
+        # Filter non-vehicles
+        vehicle_classes = [1,2,3,5,6,7]
+        valid_detections = np.in1d(detections.class_id, vehicle_classes)
+        detections = detections[valid_detections]
         detections = self.tracker.update_with_detections(detections)
         
+        # Set lists to hold detections in zone
         detections_zones_left = []
         detections_zones_right = []
-        
+
         for zone_left in self.zones_left:
             detections_zone_left = detections[zone_left.trigger(detections=detections)]
             detections_zones_left.append(detections_zone_left)
-            
+        
         for zone_right in self.zones_right:
             detections_zone_right = detections[zone_right.trigger(detections=detections)]
             detections_zones_right.append(detections_zone_right)
-            
+            # print(f"Pre Triggers: {detections[zone_right.trigger(detections=detections)]}")
+            # print(f"Detections in right zone: {len(detections_zone_right)}")
+            # print(f"Post Triggers: {zone_right.trigger(detections=detections)}")
+        # print(f"Detections in left zone: {len(detections_zone_left)}")
+
+
         # detections = sv.Detections.merge(detections_zones_left)
         detections = self.detections_manager.update(
             detections=detections,
@@ -243,7 +229,7 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "--target_video_path",
-        required=True,
+        required=False,
         type=str,)
     
     parser.add_argument(
@@ -254,7 +240,7 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "--iou_threshold",
-        type=float, 
+        type=float,
     )
     
     args = parser.parse_args()
