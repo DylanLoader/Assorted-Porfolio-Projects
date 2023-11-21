@@ -11,4 +11,5 @@ Primary goal of this project is to be able to count vehicles passing a user defi
 ![](images/traffic-detection-code-flow.png)
 ## References
 
-- Website icon: https://www.flaticon.com/free-icon/truck_819873?term=truck&page=1&position=5&origin=search&related_id=819873
+- This project leans heavily on the great tutorials and Supervision package provided by [Roboflow](https://roboflow.com/)
+- Website Icon Attribution: https://www.flaticon.com/free-icon/truck_819873?term=truck&page=1&position=5&origin=search&related_id=819873

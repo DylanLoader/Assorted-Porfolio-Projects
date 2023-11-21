@@ -1,5 +1,6 @@
 import cv2
 import argparse
+from tqdm import tqdm
 from typing import List, Tuple, Dict
 from ultralytics import YOLO
 import supervision as sv
@@ -8,19 +9,16 @@ import numpy as np
 BASE_DIR = ""
 VIDEO_PATH = ""
 MODEL_PATH = ""
-model_type = "large"
-if model_type == "large":
-    MODEL_PATH = "../models/yolov8l.pt"
-else:   
-    MODEL_PATH = "../models/yolov8s.pt"
+# model_type = "large"
+# if model_type == "large":
+#     MODEL_PATH = "../models/yolov8l.pt"
+# else:   
+#     MODEL_PATH = "../models/yolov8s.pt"
 
 # Set Detection parameters
 CONFIDENCE_THRESHOLD = 0.5
-# LINE_START = sv.Point(320, 0)
-# LINE_END = sv.Point(320, 480)
 
-COLORS = sv.ColorPalette.default()
-
+COLORS = sv.ColorPalette.default()\
 
 class DetectionsManager:
     def __init__(self) -> None:
@@ -31,43 +29,47 @@ class DetectionsManager:
                detections_zones_left:List[sv.Detections],
                detections_zones_right:List[sv.Detections]
                )-> sv.Detections:
+
         #TODO check this, shouldn't be necessary for 4 lane highway with no uturn
         for zone_left_id, detections_zone_left in enumerate(detections_zones_left):
             for tracker_id in detections_zone_left.tracker_id:
                 self.tracker_id_to_zone_id.setdefault(tracker_id, zone_left_id)
             
         # handle right lane
-        # for zone_right_id, detections_zone_right in enumerate(detections_zones_right:
-        #     for tracker_id in detections_zone_right.tracker_id:
-        #         if tracker_id in self.tracker_id_to_zone_id:
-        #             zone_in_id = 
+        for zone_right_id, detections_zone_right in enumerate(detections_zones_right):
+            for tracker_id in detections_zone_right.tracker_id:
+               self.tracker_id_to_zone_id.setdefault(tracker_id, zone_right_id)
+                    
         # Map tracker ids into zone ids
-        detections.class_id = np.vectorize(lambda x: self.tracker_id_to_zone_id.get(x,-1))(detections.tracker_id)
+        #TODO fix this and uncomment
+        # detections.class_id = np.vectorize(
+        #     lambda x: self.tracker_id_to_zone_id.get(x,-1))(detections.tracker_id)
         # Remove detections that do not occure in a detection zone (eg. cars in ditch)
         detections = detections[detections.class_id != -1]
+        # print(detections.class_id)
         return detections
 
 # Left lane dotted
-left_dotted = [
-np.array([
-[1596, 613],[972, 2121]
-])
-]
+# left_dotted = [
+# np.array([
+# [1596, 613],[972, 2121]
+# ])
+# ]
     
-# Right lane dotted
-right_dotted = [np.array([[1596, 613],[972, 2121]])]
+# # Right lane dotted
+# right_dotted = [np.array([[1596, 613],[972, 2121]])]
 
 # Right lane boundary 
 right_lane_poly = [
 np.array([
-[1872, 769],[2860, 2145],[3772, 2145],[3832, 2121],[3828, 1801],[2072, 749],[1884, 753]
+[1904, 815],[2764, 2059],[3824, 2031],[3824, 1799],[2136, 787],[1904, 803]
 ])
 ]
 
 # left lane boundary 
 left_lane_poly=[
 np.array([
-[1684, 717],[1452, 713],[172, 2149],[1756, 2145],[1684, 693]
+[1404, 811],[1684, 811],[1732, 1983],[368, 1967],[1408, 803]
 ])
 ]
 
@@ -76,8 +78,8 @@ ZONE_RIGHT_POLYGONS = right_lane_poly
 
 def initiate_polygon_zones(
     polygons: List[np.ndarray],
-    frame_resolution_wh: Tuple[int, int], 
-    triggering_position: sv.Position, 
+    frame_resolution_wh: Tuple[int, int],
+    triggering_position: sv.Position,
 )->List[sv.PolygonZone]:
     return [
         sv.PolygonZone(
@@ -90,11 +92,11 @@ def initiate_polygon_zones(
 
 class VideoProcessor: 
     def __init__(
-        self, 
-        source_weights_path:str, 
+        self,
+        source_weights_path:str,
         source_video_path:str,
-        target_video_path:str, 
-        confidence_threshold:float=0.3, 
+        target_video_path:str,
+        confidence_threshold:float=0.3,
         iou_threshold:float=0.7,
     )->None:
         self.source_video_path = source_video_path
@@ -103,7 +105,10 @@ class VideoProcessor:
         self.iou_threshold = iou_threshold
         self.model = YOLO(source_weights_path)
         self.box_annotator = sv.BoxAnnotator(
-            color=COLORS
+            color=COLORS,
+            thickness=4,
+            text_thickness=4, 
+            text_scale=2, 
             )
         self.tracker = sv.ByteTrack()
         self.detections_manager = DetectionsManager()
@@ -119,14 +124,46 @@ class VideoProcessor:
             triggering_position=sv.Position.CENTER,
         )
     def process_video(self):
-        frame_generator = sv.get_video_frames_generator(self.source_video_path)
+        frame_generator = sv.get_video_frames_generator(source_path=self.source_video_path)
         
-        for frame in frame_generator:
-            processed_frame = self.process_frame(frame)
-            cv2.imshow("frame", processed_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-        cv2.destroyAllWindows()
+        if self.target_video_path:
+            with sv.VideoSink(self.target_video_path, self.video_info, codec="avc1") as sink:
+                for frame in tqdm(frame_generator, total=self.video_info.total_frames):
+                    annotated_frame = self.process_frame(frame)
+                    sink.write_frame(annotated_frame)
+        else:
+            for frame in tqdm(frame_generator, total=self.video_info.total_frames):
+                annotated_frame = self.process_frame(frame)
+                cv2.imshow("Processed Video", annotated_frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+            cv2.destroyAllWindows()
+        #####
+        # for frame in frame_generator:
+        #     processed_frame = self.process_frame(frame)
+        #     cv2.imshow("frame", processed_frame)
+        #     if cv2.waitKey(1) & 0xFF == ord('q'):
+        #         break
+        #####
+            # # Convert the opencv mp4 to h264 encoding for streamlit
+            # cap = cv2.VideoCapture(0)
+            # fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            # out = cv2.VideoWriter(self.target_video_path, fourcc, 30, (self.video_info.width, self.video_info.height)) 
+            # while(cap.isOpened()):
+            #     ret, frame = cap.read()
+            #     if ret==True:
+            #         out.write(frame)
+
+            #         cv2.imshow('frame',frame)
+            #         if cv2.waitKey(1) & 0xFF == ord('q'):
+            #             break
+            #     else:
+            #         break
+
+        # Release everything if job is finished
+        # cap.release()
+        # out.release()
+        # cv2.destroyAllWindows()
 
     def annotate_frame(self, frame: np.ndarray, detections: sv.Detections)->np.ndarray:
         annotated_frame = frame.copy() # Create local copy of frame to not change in place
@@ -146,9 +183,9 @@ class VideoProcessor:
             )
         
         labels = [
-            f"Tracker ID: {tracker_id}"
-            for tracker_id
-            in detections.tracker_id
+            f"Class: {self.model.model.names[class_id]}, Tracker ID: {tracker_id}"
+            for _, _, _, class_id, tracker_id
+            in detections
         ]
         annotate_frame= self.box_annotator.annotate(
             scene=annotated_frame,
@@ -160,25 +197,32 @@ class VideoProcessor:
 
     def process_frame(self, frame: np.ndarray)->np.ndarray:
         result = self.model(
-            frame, 
-            verbose=False, 
-            conf=self.confidence_threshold, 
+            frame,
+            verbose=False,
+            conf=self.confidence_threshold,
             iou=self.iou_threshold,
             )[0]
         detections = sv.Detections.from_ultralytics(result)
+        # detections.class_id = np.zeros(len(detections))
         detections = self.tracker.update_with_detections(detections)
         
         detections_zones_left = []
+        detections_zones_right = []
         
         for zone_left in self.zones_left:
             detections_zone_left = detections[zone_left.trigger(detections=detections)]
             detections_zones_left.append(detections_zone_left)
             
+        for zone_right in self.zones_right:
+            detections_zone_right = detections[zone_right.trigger(detections=detections)]
+            detections_zones_right.append(detections_zone_right)
+            
         # detections = sv.Detections.merge(detections_zones_left)
         detections = self.detections_manager.update(
-            detections=detections, 
-            detections_zone=detections_zones_left)
-        
+            detections=detections,
+            detections_zones_left=detections_zones_left,
+            detections_zones_right=detections_zones_right
+            )
         return self.annotate_frame(frame=frame, detections=detections)
 
 if __name__ == "__main__":
