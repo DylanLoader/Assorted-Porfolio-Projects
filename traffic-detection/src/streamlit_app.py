@@ -1,33 +1,54 @@
 # Imports
 import streamlit as st
 import pandas as pd
+import json
+import re
 
 # Set page configuration
 st.set_page_config(layout="wide", page_title="Traffic Analysis Dashboard", page_icon="../images/truck.png")
 
-col1, col2 = st.columns(2)
+if "visibility" not in st.session_state:
+    st.session_state.visibility = "visible"
+    st.session_state.disabled = False
+st.title("Traffic Analysis Dashboard")
+# st.markdown("Project Description: ")
+st.markdown("Project Code Repo: [LINK](https://github.com/DylanLoader/Assorted-Porfolio-Projects/tree/main/traffic-detection)")
+# with col1:
+option = st.selectbox(
+    "Select YOLO Model To Display",
+    ("None", "Small", "Medium", "Large"),
+    label_visibility=st.session_state.visibility,
+    disabled=st.session_state.disabled,
+    index=None
+)
 
-with col1:
-    on = st.toggle('Activate YOLO Overlay')
+VIDEO_PATH = "../data/vehicle-counting.mp4"
+MODEL_PATH = "../models/yolov8s.pt"
+if option=="Small":
+    VIDEO_PATH = "../data/vehicle-counting-yolov8s.mp4"
+    MODEL_PATH = "../models/yolov8s.pt"
+elif option=="Medium":
+    VIDEO_PATH = "../data/vehicle-counting-yolov8m.mp4"
+    MODEL_PATH = "../models/yolov8m.pt"
+elif option=="Large":
+    VIDEO_PATH = "../data/vehicle-counting-yolov8l.mp4"
+    MODEL_PATH = "../models/yolov8l.pt"
+model_name = MODEL_PATH.split('/')[-1]
+video_file = open(VIDEO_PATH, 'rb')
+video_bytes = video_file.read()
+st.video(video_bytes)
 
-    if on:
-        VIDEO_PATH = "../data/vehicle-counting-main.mp4"
-    else:
-        VIDEO_PATH = "../data/vehicle-counting.mp4"
-        
-    video_file = open(VIDEO_PATH, 'rb')
-    video_bytes = video_file.read()
-
-    st.video(video_bytes)
-    
-with col2:
+JSON_PATH = f"../data/output/{model_name}.json"
+df = pd.read_json(JSON_PATH)
+df.index = ['Left', 'Right']
+df = df.T
+if option is not None:
+    st.write('Summary Information By Road')
     st.dataframe(
-        data = pd.DataFrame(
-            {'Left Lane Summary':[10,1], 'Right Lane Summary':[12,1]}
-        ),
+        data = df,
         column_config={
         "name": "App name", 
         },
-        hide_index=True,
-        use_container_width=True, 
+        hide_index=False,
+        use_container_width=True,
         )
