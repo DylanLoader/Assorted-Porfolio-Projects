@@ -4,15 +4,20 @@
 
 A fun project for detecting and analyzing traffic flow from video using Roboflow's Supervision package and Ultralytics' implementation of YOLOv8.
 
-Primary goal of this project is to be able to count vehicles passing a user defined threshold.
+Primary goal of this project is to be able to count vehicles passing a user defined threshold. This code can easily be extended to new video data by making a few tweaks to the detection criteria based on where the bounding box intersects the polygonzone and defining a new polygon zone. 
 
-Demo:
+Streamlit Web-app Demo:
 
 ![](images/demo.gif)
 
 ## System Design
 
 ![](images/traffic-detection-code-flow.png)
+
+### Implementation
+
+The current implementation of this code reads a on-disk video through OpenCV's Python API. 
+From there the video is read frame by frame and detections are made using YOLOv8, by Ultralytics. I chose YOLOv8 as a model for its out-of-the-box performance on vehicles as well as the speed of inference. For tracking I use Bytetrack, which allows us to track individual vehicles, which can be used later to extend this application to cover other tasks such as lane tracking for drive safety. 
 
 ## Future Work
 
