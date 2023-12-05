@@ -11,9 +11,7 @@ if "visibility" not in st.session_state:
     st.session_state.visibility = "visible"
     st.session_state.disabled = False
 st.title("Traffic Analysis Dashboard")
-# st.markdown("Project Description: ")
 st.markdown("Project Code Repo: [LINK](https://github.com/DylanLoader/Assorted-Porfolio-Projects/tree/main/traffic-detection)")
-# with col1:
 option = st.selectbox(
     "Select YOLO Model To Display",
     ("None", "Small", "Medium", "Large"),

@@ -168,3 +168,4 @@ traffic-detection/notebooks/result.mp4
 .gitignore
 *.mp4
 *.zip
+iterative-kmeans/data/*
